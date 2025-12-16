@@ -16,6 +16,7 @@ load_dotenv()
 
 # --- Configuration ---
 TOKEN = os.getenv("DISCORD_TOKEN")
+MIN_TIME_TRACK = 2  # in seconds
 
 # --- Database Setup ---
 setup_sqlite_adapters()
@@ -32,21 +33,32 @@ intents.guilds = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 # Dictionary to temporarily store join times: {user_id: start_time}
-active_sessions = {}
+active_users = {}
 init_time: datetime
 
 
 @dataclass
-class ShadowMember:
-    id: int
-    name: str
+class UserVoiceEvent:
+    user_id: int
+    user_name: str
+    channel_id: int
+    channel_name: str
+    timestamp: datetime
 
 
-async def clean_exit(signum, frame):
-    for id, data in active_sessions:
-        member = ShadowMember(id, data["user_name"])
-        event_time = datetime.now(timezone.utc)
-        await close_session(member, event_time)
+def clean_exit(signum, frame):
+    for event in active_users.values():
+        end_time = datetime.now(timezone.utc)
+        save_voice_session(
+            event.user_id,
+            event.user_name,
+            event.channel_id,
+            event.channel_name,
+            event.timestamp,
+            end_time,
+        )
+        print(f"Tracked user {event.user_name} in {event.channel_name}")
+    sys.exit(0)
 
 
 # register_signals logic
@@ -68,12 +80,13 @@ async def on_ready():
             # 3. Loop through every Member currently in that Channel
             for member in channel.members:
                 print(f"Found active user: {member.name} in {channel.name}")
-                active_sessions[member.id] = {
-                    "user_name": member.name,
-                    "start_time": datetime.now(timezone.utc),
-                    "channel_id": channel.id,
-                    "channel_name": channel.name,
-                }
+                active_users[member.id] = UserVoiceEvent(
+                    user_id=member.id,
+                    user_name=member.name,
+                    channel_id=channel.id,
+                    channel_name=channel.name,
+                    timestamp=datetime.now(timezone.utc),
+                )
 
 
 @bot.event
@@ -92,45 +105,45 @@ async def on_voice_state_update(member, before, after):
     # OR User moved from one channel to another (we treat move as leave old + join new)
     if after.channel is not None and (before.channel != after.channel):
         # If they were already being tracked (moving channels), close the old session first
-        if member.id in active_sessions:
-            await close_session(member, event_time)
+        if member.id in active_users:
+            await log_user(active_users.pop(member.id))
 
         # Start tracking the new session
-        active_sessions[member.id] = {
-            "start_time": event_time,
-            "channel_id": after.channel.id,
-            "channel_name": after.channel.name,
-        }
+        active_users[member.id] = UserVoiceEvent(
+            user_id=member.id,
+            user_name=member.name,
+            channel_id=after.channel.id,
+            channel_name=after.channel.name,
+            timestamp=event_time,
+        )
         print(f"Started tracking {member.name} in {after.channel.name}")
 
     # CASE 2: User Left a Channel (before is a channel, after is None)
     elif before.channel is not None and after.channel is None:
-        if member.id in active_sessions:
-            await close_session(member, event_time)
+        if member.id in active_users:
+            await log_user(active_users.pop(member.id))
 
 
-async def close_session(member, end_time):
+async def log_user(user: UserVoiceEvent):
     """
     Finalizes a voice session and saves it to the database.
     """
-    if member.id not in active_sessions:
-        return
-
-    session_data = active_sessions.pop(member.id)
-    start_time = session_data["start_time"]
-    duration = end_time - start_time
+    end_time = datetime.now(timezone.utc)
+    duration = end_time - user.timestamp
 
     # Only log sessions that lasted longer than 5 seconds
-    if duration > timedelta(seconds=5):
+    if duration > timedelta(seconds=MIN_TIME_TRACK):
         save_voice_session(
-            user_id=member.id,
-            user_name=member.name,
-            channel_id=session_data["channel_id"],
-            channel_name=session_data["channel_name"],
-            start_time=start_time,
+            user_id=user.user_id,
+            user_name=user.user_name,
+            channel_id=user.channel_id,
+            channel_name=user.channel_name,
+            start_time=user.timestamp,
             end_time=end_time,
         )
-        print(f"Logged {member.name}: {duration}s in {session_data['channel_name']}")
+        print(f"Logged {user.user_name} for {duration} in {user.channel_name}")
+    else:
+        print(f"Active time for {user.user_name} is less than {MIN_TIME_TRACK}s")
 
 
 @bot.command()

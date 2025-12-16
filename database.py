@@ -36,7 +36,9 @@ def setup_sqlite_adapters():
 
 
 def save_voice_session(
-    user_id, user_name, channel_id, channel_name, start_time, end_time
+    user_id: int, user_name: str,
+    channel_id: int, channel_name: str,
+    start_time: datetime, end_time: datetime
 ):
     """
     Saves a voice session to the database.

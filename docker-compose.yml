@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  discord-bot:
+    build: .
+    container_name: discord-bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      # Persist database outside container
+      - ./data:/app/data
+    environment:
+      - DATABASE_PATH=/app/data/stats.db
+    # Optional: Set memory limits
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 256M

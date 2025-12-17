@@ -1,4 +1,5 @@
 import os
+import re
 import signal
 import sys
 from dataclasses import dataclass
@@ -8,8 +9,8 @@ import discord
 from discord.ext import commands
 from dotenv import load_dotenv
 
-from database import get_daily_stats, init_db, save_voice_session, setup_sqlite_adapters
-from graphs import create_stats_graph
+from database import get_daily_user_stats, init_db, save_voice_session
+from graphs import create_activity_per_day_graph
 
 # Load environment variables from .env file
 load_dotenv()
@@ -19,7 +20,6 @@ TOKEN = os.getenv("DISCORD_TOKEN")
 MIN_TIME_TRACK = 2  # in seconds
 
 # --- Database Setup ---
-setup_sqlite_adapters()
 init_db()
 
 # --- Bot Setup ---
@@ -147,12 +147,26 @@ async def log_user(user: UserVoiceEvent):
 
 
 @bot.command()
-async def stats(ctx, days: int = 7, member: discord.Member = None):
+async def stats(ctx, *args):
     """
     Generates a graph showing daily voice chat hours for the past N days.
-    Usage: !stats [days] [@user] (defaults to 7 days and yourself if not specified)
+    Usage: !stats [days]d [@user] (defaults to 7 days and yourself if not specified)
     """
-    target_user = member or ctx.author
+    target_user = ctx.author
+    days = 7
+    for arg in args:
+        if isinstance(arg, discord.Member):
+            target_user = arg
+        if isinstance(arg, str) and re.match(r"^(\d+)(d)$", arg):
+            days = int(arg[-1])
+
+        # SCENARIO 1: The target is the @everyone role
+        # In Discord, the @everyone role ID is actually the same as the Guild (Server) ID
+        if isinstance(arg, discord.Role) and arg.id == ctx.guild.id:
+            member_count = ctx.guild.member_count
+            online_members = len(
+                [m for m in ctx.guild.members if m.status != discord.Status.offline]
+            )
 
     # Ignore bots
     if target_user.bot:
@@ -160,7 +174,11 @@ async def stats(ctx, days: int = 7, member: discord.Member = None):
         return
 
     # Get data for the specified number of days
-    daily_data = get_daily_stats(target_user.id, days=days).items()
+    form_date = datetime.combine(
+        datetime.now().date() - timedelta(days=days), datetime.min.time()
+    )
+    to_date = datetime.combine(datetime.now().date(), datetime.max.time())
+    daily_data = get_daily_user_stats(target_user.id, form_date, to_date)
 
     # Calculate total time
     total = timedelta(seconds=0)
@@ -169,21 +187,17 @@ async def stats(ctx, days: int = 7, member: discord.Member = None):
 
     if total.seconds == 0:
         await ctx.send(
-            f"No voice activity recorded for {target_user.display_name} in the past {days} days."
+            f"No voice activity recorded for {target_user.display_name} in last {days} days."
         )
         return
 
     # Create the graph
-    graph_buffer = create_stats_graph(
-        target_user.display_name,
-        daily_data,
-        f"Voice Chat Hours (Last {days} Days)",
-    )
+    graph_buffer = create_activity_per_day_graph(daily_data)
 
     if graph_buffer:
         file = discord.File(graph_buffer, filename="stats.png")
         await ctx.send(
-            f"**{target_user.display_name}** spent **{total.seconds // 3600} hours & {(total.seconds % 3600) // 60} minutes** in voice channels over the past **{days}** days.",
+            f"**{target_user.display_name}** was active for **{total.seconds // 3600}h {(total.seconds % 3600) // 60}m** in last **{days}** days.",
             file=file,
         )
     else:

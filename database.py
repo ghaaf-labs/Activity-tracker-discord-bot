@@ -1,6 +1,6 @@
 import sqlite3
 from collections import defaultdict
-from datetime import datetime, time, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 
 DB_NAME = "stats.db"
 
@@ -9,6 +9,7 @@ def init_db():
     """Initializes the SQLite database."""
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
+    # start_time and end_time are unix timestamps
     c.execute("""
         CREATE TABLE IF NOT EXISTS voice_sessions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -24,21 +25,13 @@ def init_db():
     conn.close()
 
 
-def setup_sqlite_adapters():
-    """Register SQLite adapters and converters for datetime objects."""
-    # Adapter (Save): datetime -> int
-    sqlite3.register_adapter(datetime, lambda dt: int(dt.timestamp()))
-    # Converter (Load): int -> datetime
-    sqlite3.register_converter(
-        "timestamp",
-        lambda v: datetime.fromtimestamp(int(v), tz=timezone.utc),
-    )
-
-
 def save_voice_session(
-    user_id: int, user_name: str,
-    channel_id: int, channel_name: str,
-    start_time: datetime, end_time: datetime
+    user_id: int,
+    user_name: str,
+    channel_id: int,
+    channel_name: str,
+    start_time: datetime,
+    end_time: datetime,
 ):
     """
     Saves a voice session to the database.
@@ -72,101 +65,63 @@ def save_voice_session(
     conn.close()
 
 
-def aggregate_durations_by_day(intervals):
+def get_daily_user_stats(user_id: int, from_date: datetime, to_date: datetime):
     """
-    Aggregates a list of (start, end) tuples into a daily dictionary.
-
-    Args:
-        intervals: List of tuples [(start_dt, end_dt), ...]
-
-    Returns:
-        Dictionary { date_object: timedelta_duration }
-    """
-    if not intervals:
-        return {}
-
-    daily_stats = defaultdict(timedelta)
-    min_date = None
-    max_date = None
-
-    for start, end in intervals:
-        if start > end:
-            continue
-
-        # Update global min/max range
-        if min_date is None or start.date() < min_date:
-            min_date = start.date()
-        if max_date is None or end.date() > max_date:
-            max_date = end.date()
-
-        # Split intervals across midnights
-        current_ptr = start
-        while current_ptr.date() < end.date():
-            next_midnight = datetime.combine(
-                current_ptr.date() + timedelta(days=1), time.min
-            )
-            daily_stats[current_ptr.date()] += next_midnight - current_ptr
-            current_ptr = next_midnight
-
-        daily_stats[current_ptr.date()] += end - current_ptr
-
-    # Fill in the gaps
-    if min_date is None:
-        return {}
-
-    current_date = min_date
-    final_results = {}
-
-    while current_date <= max_date:
-        duration = daily_stats.get(current_date, timedelta(0))
-        final_results[current_date] = duration
-        current_date += timedelta(days=1)
-
-    return final_results
-
-
-def get_daily_stats(user_id, days):
-    """
-    Retrieves daily aggregated voice time for the specified user over the last N days.
+    Retrieves daily aggregated voice time per day for the specified user.
 
     Args:
         user_id: Discord user ID
-        days: Number of days to look back
+        from_date: Filter in the date range
+        to_date: Filter in the date range
 
     Returns:
-        Dictionary of {date: timedelta} for each day in the range
+        list of (date, timedelta) for the user
     """
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
-
-    # Calculate the start date
-    end_date = datetime.now(timezone.utc)
-    start_datetime = datetime.combine(
-        end_date.date() - timedelta(days=days), time.min
-    ).replace(tzinfo=timezone.utc)
-    start_timestamp = int(start_datetime.timestamp())
 
     # Query to get sessions
     c.execute(
         """
         SELECT start_time, end_time
         FROM voice_sessions
-        WHERE user_id = ? AND start_time >= ?
+        WHERE user_id = ? AND start_time >= ? AND end_time <= ?
         ORDER BY start_time
     """,
-        (user_id, start_timestamp),
+        (user_id, int(from_date.timestamp()), int(to_date.timestamp())),
     )
 
     results = c.fetchall()
     conn.close()
 
-    # Convert integer timestamps back to datetime objects
-    datetime_results = [
-        (
-            datetime.fromtimestamp(start, tz=timezone.utc),
-            datetime.fromtimestamp(end, tz=timezone.utc),
-        )
-        for start, end in results
-    ]
+    # Create a list of (date, timedelta) for hours per day
+    # time per day can go more than 24h if the underlying data is incorect (this is intended behavior)
+    time_per_date = defaultdict(timedelta)
+    for start_ts, end_ts in results:
+        start = datetime.fromtimestamp(start_ts, timezone.utc)
+        end = datetime.fromtimestamp(end_ts, timezone.utc)
+        if start.date() == end.date():
+            time_per_date[start.date()] += end - start
+        else:  # start and end are not in the same day
+            midnight = datetime.combine(
+                start.date() + timedelta(days=1), datetime.min.time()
+            )
+            time_per_date[start.date()] += midnight - start
+            # they maybe more than one day apart so this is safer than using previous midnight
+            midnight = datetime.combine(
+                end.date() - timedelta(days=1), datetime.max.time()
+            )
+            time_per_date[start.date()] += end - midnight
+            # if they are more than one day apart
+            for i in range(1, (end - start).days):
+                time_per_date[start.date() + timedelta(days=i)] += timedelta(days=1)
 
-    return aggregate_durations_by_day(datetime_results)
+    # zero pad the missing days
+    date_cursor = from_date.date()
+    targetdate = to_date.date()
+    while date_cursor <= targetdate:
+        if not time_per_date[date_cursor]:
+            time_per_date[date_cursor] = timedelta(seconds=0)
+        date_cursor += timedelta(days=1)
+
+    return sorted(time_per_date.items())

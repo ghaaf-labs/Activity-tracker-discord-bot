@@ -2,7 +2,7 @@ import sqlite3
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 
-DB_NAME = "stats.db"
+DB_NAME = "./data/stats.db"
 
 
 def init_db():

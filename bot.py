@@ -10,7 +10,7 @@ from discord.ext import commands
 from dotenv import load_dotenv
 
 from database import get_daily_user_stats, init_db, save_voice_session
-from graphs import create_activity_per_day_graph
+from graphs import create_activity_per_day_graph, create_grouped_bar_chart
 
 # Load environment variables from .env file
 load_dotenv()
@@ -147,26 +147,55 @@ async def log_user(user: UserVoiceEvent):
 
 
 @bot.command()
-async def stats(ctx, *args):
+async def weekly(ctx):
     """
-    Generates a graph showing daily voice chat hours for the past N days.
-    Usage: !stats [days]d [@user] (defaults to 7 days and yourself if not specified)
+    Generates a graph showing weekly voice chat activity for all members.
+    Usage: !stats [@user] (defaults to yourself if not specified)
     """
-    target_user = ctx.author
-    days = 7
-    for arg in args:
-        if isinstance(arg, discord.Member):
-            target_user = arg
-        if isinstance(arg, str) and re.match(r"^(\d+)(d)$", arg):
-            days = int(arg[-1])
 
-        # SCENARIO 1: The target is the @everyone role
-        # In Discord, the @everyone role ID is actually the same as the Guild (Server) ID
-        if isinstance(arg, discord.Role) and arg.id == ctx.guild.id:
-            member_count = ctx.guild.member_count
-            online_members = len(
-                [m for m in ctx.guild.members if m.status != discord.Status.offline]
+    # get this week
+    now = datetime.now()
+    form_date = datetime.combine(
+        (now - timedelta(days=now.weekday())).date(), datetime.min.time()
+    )
+    to_date = datetime.combine(
+        (now + timedelta(days=6 - now.weekday())).date(), datetime.max.time()
+    )
+
+    user_activity = {}
+    days = None
+    for user in ctx.guild.members:
+        if not user.bot:
+            dates, values = zip(
+                *list(get_daily_user_stats(user.id, form_date, to_date))
             )
+            user_activity[user.display_name] = [
+                v.total_seconds() / 3600 for v in values
+            ]
+            if not days:
+                days = (day.strftime("%a\n%m%d") for day in dates)
+
+    # Create the graph
+    graph_buffer = create_grouped_bar_chart(days, user_activity)
+
+    if graph_buffer:
+        file = discord.File(graph_buffer, filename="week_stats.png")
+        await ctx.send(
+            "Weekly server activity.",
+            file=file,
+        )
+    else:
+        await ctx.send("Failed to generate graph.")
+
+
+@bot.command()
+async def stats(ctx, target_user: discord.Member | None = None):
+    """
+    Generates a graph showing daily voice chat hours for the past 7 days.
+    """
+    if not target_user:
+        target_user = ctx.author
+    days = 7
 
     # Ignore bots
     if target_user.bot:

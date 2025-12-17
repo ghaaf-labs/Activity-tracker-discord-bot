@@ -8,10 +8,7 @@ A Discord bot that tracks voice channel activity and generates statistical graph
 - **Activity Statistics**: Generate personal activity graphs with `!stats`
 - **Weekly Server Overview**: View server-wide activity with `!weekly`
  Commands
-
-### `!ping`
-Shows bot uptime since last restart.
-
+ 
 ## Setup
 
 ### Prerequisites

@@ -46,9 +46,9 @@ class UserVoiceEvent:
     timestamp: datetime
 
 
-def clean_exit(signum, frame):
+def flush():
     for event in active_users.values():
-        end_time = datetime.now(timezone.utc)
+        end_time = datetime.now()
         save_voice_session(
             event.user_id,
             event.user_name,
@@ -58,6 +58,26 @@ def clean_exit(signum, frame):
             end_time,
         )
         print(f"Tracked user {event.user_name} in {event.channel_name}")
+
+
+def load_users():
+    # 1. Loop through every Guild (Server) the bot is in
+    for guild in bot.guilds:
+        # 2. Loop through every Voice Channel in that Guild
+        for channel in guild.voice_channels:
+            # 3. Loop through every Member currently in that Channel
+            for member in channel.members:
+                print(f"Found active user: {member.name} in {channel.name}")
+                active_users[member.id] = UserVoiceEvent(
+                    user_id=member.id,
+                    user_name=member.name,
+                    channel_id=channel.id,
+                    channel_name=channel.name,
+                    timestamp=datetime.now(),
+                )
+
+def clean_exit(signum, frame):
+    flush()
     sys.exit(0)
 
 
@@ -72,21 +92,8 @@ signal.signal(signal.SIGTERM, clean_exit)
 async def on_ready():
     global init_time
     print(f"Logged in as {bot.user.name}")
-    init_time = datetime.now(timezone.utc)
-    # 1. Loop through every Guild (Server) the bot is in
-    for guild in bot.guilds:
-        # 2. Loop through every Voice Channel in that Guild
-        for channel in guild.voice_channels:
-            # 3. Loop through every Member currently in that Channel
-            for member in channel.members:
-                print(f"Found active user: {member.name} in {channel.name}")
-                active_users[member.id] = UserVoiceEvent(
-                    user_id=member.id,
-                    user_name=member.name,
-                    channel_id=channel.id,
-                    channel_name=channel.name,
-                    timestamp=datetime.now(timezone.utc),
-                )
+    init_time = datetime.now()
+    load_users()
 
 
 @bot.event
@@ -99,7 +106,7 @@ async def on_voice_state_update(member, before, after):
     if member.bot:
         return
 
-    event_time = datetime.now(timezone.utc)
+    event_time = datetime.now()
 
     # CASE 1: User Joined a Channel (before is None, after is a channel)
     # OR User moved from one channel to another (we treat move as leave old + join new)
@@ -128,7 +135,7 @@ async def log_user(user: UserVoiceEvent):
     """
     Finalizes a voice session and saves it to the database.
     """
-    end_time = datetime.now(timezone.utc)
+    end_time = datetime.now()
     duration = end_time - user.timestamp
 
     # Only log sessions that lasted longer than 5 seconds
@@ -144,6 +151,15 @@ async def log_user(user: UserVoiceEvent):
         print(f"Logged {user.user_name} for {duration} in {user.channel_name}")
     else:
         print(f"Active time for {user.user_name} is less than {MIN_TIME_TRACK}s")
+
+
+@commands.is_owner()
+@bot.command()
+async def reload(ctx):
+    print("reload is called")
+    flush()
+    load_users()
+    await ctx.send("State flushed to db.")
 
 
 @bot.command()
@@ -241,7 +257,7 @@ async def ping(ctx):
     """
     global init_time
     await ctx.send(
-        f"**Pong!** The bot has been online for {datetime.now(timezone.utc) - init_time}."
+        f"**Pong!** The bot has been online for {datetime.now() - init_time}."
     )
 
 

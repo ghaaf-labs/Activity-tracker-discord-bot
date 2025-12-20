@@ -3,7 +3,7 @@ import re
 import signal
 import sys
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 import discord
 from discord.ext import commands

@@ -1,6 +1,6 @@
 import sqlite3
 from collections import defaultdict
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 DB_NAME = "./data/stats.db"
 
@@ -98,8 +98,8 @@ def get_daily_user_stats(user_id: int, from_date: datetime, to_date: datetime):
     # time per day can go more than 24h if the underlying data is incorect (this is intended behavior)
     time_per_date = defaultdict(timedelta)
     for start_ts, end_ts in results:
-        start = datetime.fromtimestamp(start_ts, timezone.utc)
-        end = datetime.fromtimestamp(end_ts, timezone.utc)
+        start = datetime.fromtimestamp(start_ts)
+        end = datetime.fromtimestamp(end_ts)
         if start.date() == end.date():
             time_per_date[start.date()] += end - start
         else:  # start and end are not in the same day

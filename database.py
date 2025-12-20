@@ -125,3 +125,46 @@ def get_daily_user_stats(user_id: int, from_date: datetime, to_date: datetime):
         date_cursor += timedelta(days=1)
 
     return sorted(time_per_date.items())
+
+
+def get_activity(from_date: datetime, to_date: datetime):
+    """
+    Retrieves activity in range.
+
+    Args:
+        from_date: Filter in the date range
+        to_date: Filter in the date range
+
+    Returns:
+        list of {user, channel, start, end}
+    """
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+
+    # Query to get sessions
+    c.execute(
+        """
+        SELECT user_name, channel_name, start_time, end_time
+        FROM voice_sessions
+        WHERE start_time >= ? AND end_time <= ?
+        ORDER BY start_time
+    """,
+        (int(from_date.timestamp()), int(to_date.timestamp())),
+    )
+
+    results = c.fetchall()
+    conn.close()
+
+
+    result = []
+    for user, channel, start_ts, end_ts in results:
+        result.append(
+            {
+                "user": user,
+                "channel": channel,
+                "start": datetime.fromtimestamp(start_ts),
+                "end": datetime.fromtimestamp(end_ts)
+            }
+        )
+
+    return result

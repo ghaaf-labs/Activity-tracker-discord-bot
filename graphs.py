@@ -2,6 +2,9 @@ import io
 
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
+import plotly.express as px
+# from PIL import Image
 
 
 def create_activity_per_day_graph(daily_data):
@@ -100,5 +103,48 @@ def create_grouped_bar_chart(dates, user_data):
     plt.savefig(buf, format="png", dpi=250)
     buf.seek(0)
     plt.close(fig)
+
+    return buf
+
+
+def create_daily_activity(data):
+
+    df = pd.DataFrame(data)
+
+    # 1. Assign a dummy date to the time strings so Plotly can parse them as datetime objects
+    # dummy_date = "2024-01-01 "
+    # df["Start"] = pd.to_datetime(dummy_date + df["Start"])
+    # df["End"] = pd.to_datetime(dummy_date + df["End"])
+
+    # 2. Create the timeline
+    fig = px.timeline(
+        df,
+        x_start="start",
+        x_end="end",
+        y="user",
+        color="channel",
+        title="User Activity (24-Hour View)",
+    )
+
+    # 3. Format the X-axis to show ONLY time
+    fig.update_xaxes(
+        tickformat="%H:%M",
+        # Optional: Force the range to be the full 24 hours
+        # range=[dummy_date + "00:00:00", dummy_date + "23:59:59"],
+        dtick=3600000 * 2,  # Show a tick every 2 hours (ms * seconds * hours)
+    )
+    fig.update_yaxes(autorange="reversed")  # Traditional Gantt view (top to bottom)
+
+    buf = io.BytesIO()
+    # 3. Write the image to the buffer
+    #    - file: accepts the buffer object
+    #    - format: 'png', 'jpeg', 'svg', or 'pdf'
+    #    - scale: equivalent to increasing DPI (default is 1, 2-3 is usually high res)
+    fig.write_image(buf, format="png", width=800, height=400, scale=2)
+    buf.seek(0)
+
+    # img = Image.open(buf)
+    # img.show()
+    # fig.show()
 
     return buf

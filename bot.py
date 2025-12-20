@@ -9,8 +9,8 @@ import discord
 from discord.ext import commands
 from dotenv import load_dotenv
 
-from database import get_daily_user_stats, init_db, save_voice_session
-from graphs import create_activity_per_day_graph, create_grouped_bar_chart
+from database import get_daily_user_stats, init_db, save_voice_session, get_activity
+from graphs import create_activity_per_day_graph, create_grouped_bar_chart, create_daily_activity
 
 # Load environment variables from .env file
 load_dotenv()
@@ -189,7 +189,7 @@ async def weekly(ctx):
                 v.total_seconds() / 3600 for v in values
             ]
             if not days:
-                days = (day.strftime("%a\n%m%d") for day in dates)
+                days = (day.strftime("%a\n%m/%d") for day in dates)
 
     # Create the graph
     graph_buffer = create_grouped_bar_chart(days, user_activity)
@@ -259,6 +259,49 @@ async def ping(ctx):
     await ctx.send(
         f"**Pong!** The bot has been online for {datetime.now() - init_time}."
     )
+
+
+@bot.command()
+async def activity(ctx, *, when):
+    """
+    Generates a graph showing hour activity for the set day.
+    """
+
+    if not when:
+        date = datetime.now().date()
+    else:
+        match when:
+            case "today":
+                date = datetime.now().date()
+            case "yesterday":
+                date = (datetime.now() - timedelta(days=1)).date()
+            case s if re.match(r"^\d{4}(-|\/|\\)\d{2}(-|\/|\\)\d{2}$", s):
+                year, month, day = re.split(r'[-/\\]', when)
+                date = datetime(int(year), int(month), int(day)).date()
+            case s if re.match(r"^\d{2}(-|\/|\\)\d{2}(-|\/|\\)\d{4}$", s):
+                year, month, day = re.split(r'[-/\\]', when)
+                date = datetime(int(year), int(month), int(day)).date()
+            case s if re.search(r"^((Jan)|(Feb)|(Mar)|(Apr)|(May)|(Jun)|(Jul)|(Aug)|(Sep)|(Oct)|(Nov)|(Dec)) \d{2}$", s):
+                date = datetime.strptime(when, "%b %d").replace(year=datetime.now().year).date()
+            case _:
+                await ctx.send("Unkown date format!")
+                return
+
+    # Get data for the specified number of days
+    form_date = datetime.combine(date, datetime.min.time())
+    to_date = datetime.combine(date, datetime.max.time())
+    data = get_activity(form_date, to_date)
+    if data:
+        graph_buffer = create_daily_activity(data)
+        file = discord.File(graph_buffer, filename="stats.png")
+        await ctx.send(
+            f"Server activity for {date}:",
+            file=file,
+        )
+    else:
+        await ctx.send(f"No data is avalable for {date}.")
+
+
 
 
 if __name__ == "__main__":

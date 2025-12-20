@@ -262,7 +262,7 @@ async def ping(ctx):
 
 
 @bot.command()
-async def activity(ctx, *, when):
+async def activity(ctx, *, when:str = ""):
     """
     Generates a graph showing hour activity for the set day.
     """

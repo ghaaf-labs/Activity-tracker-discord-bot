@@ -17,7 +17,4 @@ RUN plotly_get_chrome -y
 # Copy application files
 COPY *.py .
 
-# Set environment variable for database location (optional)
-ENV DISCORD_TOKEN=your_discord_bot_token_here
-
 CMD ["python", "bot.py"]

@@ -123,15 +123,15 @@ def create_daily_activity(data):
         x_end="end",
         y="user",
         color="channel",
-        title="User Activity (24-Hour View)",
+        title="User Activity 24-Hour View (Amsterdam Time)",
     )
 
     # 3. Format the X-axis to show ONLY time
     fig.update_xaxes(
-        tickformat="%H:%M",
+        tickformat="%H",
         # Optional: Force the range to be the full 24 hours
         # range=[dummy_date + "00:00:00", dummy_date + "23:59:59"],
-        dtick=3600000 * 2,  # Show a tick every 2 hours (ms * seconds * hours)
+        dtick=3600000 * 1,  # Show a tick every 2 hours (ms * seconds * hours)
     )
     fig.update_yaxes(autorange="reversed")  # Traditional Gantt view (top to bottom)
 
